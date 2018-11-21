@@ -7,17 +7,20 @@
 
 ## Запуск
 
-* Сборщик проекта ([**Bazel**](http://bazel.io/docs/install.html))
-* ([**TensorFlow**](https://www.tensorflow.org/install/)) 1.0 or greater
-* ([Чекпоинты](https://github.com/tensorflow/models/tree/master/research/im2txt)) полностью обученной модели (положить в папку model)
+* Сборщик проекта [Bazel](http://bazel.io/docs/install.html)
+* [TensorFlow](https://www.tensorflow.org/install/) 1.0 or greater
+* [Чекпоинты](https://github.com/Gharibim/Tensorflow_im2txt_5M_Step) полностью обученной модели (положить в папку model)
 * NumPy
 * pillow
 
 > Рекомендуется создать отдельную версию среды с python 3.6
-    conda create -n venv pip python=3.6
-    source activate venv
-    pip install --ignore-installed --upgrade tensorflow
-    pip install pillow
+
+```shell
+conda create -n venv pip python=3.6
+conda activate venv
+pip install tensorflow
+pip install pillow
+```
 
 ### Сборка и запуск
     bazel build -c opt im2txt/run_inference
