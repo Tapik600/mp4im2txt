@@ -18,15 +18,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from PIL import Image
-from PIL import ImageFont
-from PIL import ImageDraw
-
 import math
 import os
 
-
 import tensorflow as tf
+
+import cv2
+import numpy as np
+from typing import List, Iterable
+from shutil import rmtree
+
 
 from im2txt import configuration
 from im2txt import inference_wrapper
@@ -45,6 +46,87 @@ tf.flags.DEFINE_string("input_files", "",
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
+# ----------------------------------------------------------------------------------------------------------------------
+class FrameHolder:
+
+  def __init__(self, frame: np.ndarray, index_number: int):
+    self.frame = frame
+    self.index_number = index_number
+
+
+class VideoReader:
+
+  def __init__(self, path_to_video_file: str):
+    self._path_to_video = path_to_video_file
+
+  def read_all_frames(self) -> List[FrameHolder]:
+    return list(self.get_frames_one_by_one_generator())
+
+  def get_frames_one_by_one_generator(self) -> Iterable[FrameHolder]:
+    video = cv2.VideoCapture(self._path_to_video)
+    index = 0
+    while video.grab():
+      ret, frame = video.retrieve()
+
+      indexed_frame = FrameHolder(frame, index)
+      index += 1
+      yield indexed_frame
+
+    video.release()
+
+def covariation(matrix_1: np.ndarray, matrix_2: np.ndarray):
+  width = matrix_1.shape[1]
+  height = matrix_1.shape[0]
+
+  mean_m1 = np.mean(matrix_1)
+  mean_m2 = np.mean(matrix_2)
+
+  sum = 0
+  for y in range(height):
+    for x in range(width):
+      sum += (matrix_1[y][x] - mean_m1) * (matrix_2[y][x] - mean_m2)
+
+  return sum / (width * height)
+
+def ssim(matrix_1: np.ndarray, matrix_2: np.ndarray):
+  """
+  SSIM is used for measuring the similarity between two images.
+  The resultant SSIM index is a decimal value between -1 and 1,
+  and value 1 is only reachable in the case of two identical sets of data.
+
+  :param matrix_1:
+  :param matrix_2:
+  :return:
+  """
+  mean_m1 = np.mean(matrix_1)
+  mean_m2 = np.mean(matrix_2)
+  var_m1 = np.var(matrix_1)
+  var_m2 = np.var(matrix_2)
+  return (
+          (covariation(matrix_1, matrix_2) / (math.sqrt(var_m1) * math.sqrt(var_m2))) *
+
+          ((2 * mean_m1 * mean_m2) / (mean_m1 ** 2 + mean_m2 ** 2)) *
+
+          ((2 * math.sqrt(var_m1) * math.sqrt(var_m2)) / (var_m1 + var_m2))
+  )
+
+def filter_by_ssim(images: Iterable[FrameHolder], threshold=0.7) -> List[FrameHolder]:
+  current = None
+  filtered_list = []
+  for item in images:
+    if current is None:
+      current = item
+      filtered_list.append(item)
+      continue
+
+    if ssim(cv2.resize(cv2.cvtColor(current.frame, cv2.COLOR_BGR2GRAY), (32, 32)),
+              cv2.resize(cv2.cvtColor(item.frame, cv2.COLOR_BGR2GRAY), (32, 32))) < threshold:
+      current = item
+      filtered_list.append(item)
+
+  return filtered_list
+
+# ----------------------------------------------------------------------------------------------------------------------
 
 def main(_):
   # Build the inference graph.
@@ -61,51 +143,51 @@ def main(_):
   # vocab = vocabulary.Vocabulary(FLAGS.vocab_file)
   vocab = vocabulary.Vocabulary("word_counts.txt")
 
-  filenames = []
+  # filenames = []
   # for file_pattern in FLAGS.input_files.split(","):
   #   filenames.extend(tf.gfile.Glob(file_pattern))
   # tf.logging.info("Running caption generation on %d files matching %s",
   #                 len(filenames), FLAGS.input_files)
 
-  input_files = "images/*"
-  for file_pattern in input_files.split(","):
-    filenames.extend(tf.gfile.Glob(file_pattern))
-  tf.logging.info("Running caption generation on %d files matching %s",
-                  len(filenames), input_files)
+  # input_files = "images/*"
+  # for file_pattern in input_files.split(","):
+  #   filenames.extend(tf.gfile.Glob(file_pattern))
+  # tf.logging.info("Running caption generation on %d files matching %s",
+  #                 len(filenames), input_files)
+
+
+  rmtree("out", ignore_errors=True)
+
+  vr = VideoReader("resources/dobr.mp4")
+  frames = vr.read_all_frames()
+
+  # SSIM sequence
+  os.makedirs("out")
 
   with tf.Session(graph=g) as sess:
-    # Load the model from checkpoint.
-    restore_fn(sess)
+      # Load the model from checkpoint.
+      restore_fn(sess)
 
-    # Prepare the caption generator. Here we are implicitly using the default
-    # beam search parameters. See caption_generator.py for a description of the
-    # available beam search parameters.
-    generator = caption_generator.CaptionGenerator(model, vocab)
-    for filename in filenames:
-      with tf.gfile.GFile(filename, "rb") as f:
-        image = f.read()
-      captions = generator.beam_search(sess, image)
-      print("Captions for image %s:" % os.path.basename(filename))
+      # Prepare the caption generator. Here we are implicitly using the default
+      # beam search parameters. See caption_generator.py for a description of the
+      # available beam search parameters.
 
-      sentence = [vocab.id_to_word(w) for w in captions[0].sentence[1:-2]]
-      sentence = " ".join(sentence)
-      print(sentence)
+      generator = caption_generator.CaptionGenerator(model, vocab)
+      for image in filter_by_ssim(frames, 0.3):
+          file_path = os.path.join("out", str(image.index_number) + '.jpg')
+          imgbin = cv2.imencode('.jpg', image.frame)[1].tostring()
+          captions = generator.beam_search(sess, imgbin)
+          print("Captions for image %s:" % os.path.basename(str(image.index_number)))
 
-      # for i, caption in enumerate(captions):
-      #   # Ignore begin and end words.
-      #
-      #   sentence = [vocab.id_to_word(w) for w in caption.sentence[1:-1]]
-      #   sentence = " ".join(sentence)
-      #   print("  %d) %s (p=%f)" % (i, sentence, math.exp(caption.logprob)))
+          sentence = [vocab.id_to_word(w) for w in captions[0].sentence[1:-1]]
+          sentence = " ".join(sentence)
+          print(sentence)
 
-      img = Image.open(filename)
-      draw = ImageDraw.Draw(img)
-      # font = ImageFont.truetype(<font-file>, <font-size>)
-      font = ImageFont.truetype("Ubuntu-C.ttf", 22)
-      # draw.text((x, y),"Sample Text",(r,g,b))
-      draw.text((0, 0), sentence, (255, 55, 55), font=font)
+          font = cv2.FONT_HERSHEY_PLAIN
+          out_im = cv2.line(image.frame, (0, 350), (800, 350), (10, 10, 10), 30)
+          out_im = cv2.putText(out_im, sentence, (10, 350), font, 1.2, (255, 255, 255), 1, cv2.LINE_AA)
+          cv2.imwrite(file_path, out_im)
 
-      img.save("images/_%s" % (os.path.basename(filename)))
 
 
 if __name__ == "__main__":
