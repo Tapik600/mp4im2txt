@@ -5,13 +5,14 @@
 3. Ориентируясь на результаты работы программы с шага 2 на различных фрагментах видео, предложить алгоритм динамического подбора шага i между кадрами, для которых генерируется текстовое описание. Согласовать алгоритм с преподавателем.
 4. Реализовать алгоритм из шага 3 и протестировать его.
 
-## Запуск
+## Сборка и запуск
 
+### Подготовка
 * Сборщик проекта [Bazel](http://bazel.io/docs/install.html)
 * [TensorFlow](https://www.tensorflow.org/install/) 1.0 or greater
 * [Чекпоинты](https://github.com/Gharibim/Tensorflow_im2txt_5M_Step) полностью обученной модели (положить в папку model)
 * NumPy
-* pillow
+* opencv-python
 
 > Рекомендуется создать отдельную версию среды с python 3.6
 
@@ -19,9 +20,9 @@
 conda create -n venv pip python=3.6
 conda activate venv
 pip install tensorflow
-pip install pillow
+pip install opencv-python
 ```
 
-### Сборка и запуск
+### Запуск
     bazel build -c opt im2txt/run_inference
     bazel-bin/im2txt/run_inference
