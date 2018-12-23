@@ -135,14 +135,14 @@ def main(_):
     g = tf.Graph()
     with g.as_default():
         model = inference_wrapper.InferenceWrapper()
-        restore_fn = model.build_graph_from_config(configuration.ModelConfig(), "model/model.ckpt-5000000")
+        restore_fn = model.build_graph_from_config(configuration.ModelConfig(), FLAGS.checkpoint_path) # "model/model.ckpt-5000000"
     g.finalize()
 
     # Create the vocabulary.
-    vocab = vocabulary.Vocabulary("word_counts.txt")
+    vocab = vocabulary.Vocabulary(FLAGS.vocab_file) # "word_counts.txt"
 
     rmtree("out", ignore_errors=True)
-    vr = VideoReader("resources/dobr.mp4")
+    vr = VideoReader(FLAGS.input_files) # "resources/dobr.mp4"
     frames = vr.read_all_frames()
 
     # SSIM sequence
