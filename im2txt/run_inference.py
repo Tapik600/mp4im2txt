@@ -26,7 +26,15 @@ import os
 import tensorflow as tf
 
 import cv2
+from PIL import ImageFont, ImageDraw, Image
+import requests
+import json as JSON
 import numpy as np
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver import ActionChains
+import time
+
 from typing import List, Iterable
 from shutil import rmtree
 from difflib import SequenceMatcher
@@ -47,6 +55,9 @@ tf.flags.DEFINE_string("input_files", "",
                        "of image files.")
 
 tf.logging.set_verbosity(tf.logging.INFO)
+
+url = 'https://translate.yandex.net/api/v1.5/tr.json/translate'
+APIkey = 'xxx'
 
 # ======================================================================================================================
 # VideoReader
@@ -131,6 +142,9 @@ def filter_by_ssim(images: Iterable[FrameHolder], threshold=0.7) -> List[FrameHo
 # ======================================================================================================================
 
 def main(_):
+    driver = webdriver.Chrome()
+    driver.get("https://translate.yandex.ru/?lang=en-ru")
+    time.sleep(3)
     # Build the inference graph.
     g = tf.Graph()
     with g.as_default():
@@ -147,7 +161,7 @@ def main(_):
 
     # SSIM sequence
     os.makedirs("out")
-
+    
     with tf.Session(graph=g) as sess:
         # Load the model from checkpoint.
         restore_fn(sess)
@@ -158,6 +172,11 @@ def main(_):
         generator = caption_generator.CaptionGenerator(model, vocab)
 
         prev_sentence, count_picIn, count_picOut, threshold = ("", 0, 0, 0.45)
+        rufont = ImageFont.truetype("./Ubuntu-C.ttf", 20)
+
+        fakeArea = driver.find_element_by_id("fakeArea")
+        translation = driver.find_element_by_id("translation")
+        clearButton = driver.find_element_by_id("clearButton")
 
         for image in filter_by_ssim(frames, threshold):
             file_path = os.path.join("out", str(image.index_number) + '.jpg')
@@ -165,7 +184,7 @@ def main(_):
             captions = generator.beam_search(sess, cv2.imencode('.jpg', image.frame)[1].tostring())
 
             sentence = [vocab.id_to_word(w) for w in captions[0].sentence[1:-1]]
-            sentence = " ".join(sentence)
+            sentence = ' '.join(sentence)
 
             ratio = SequenceMatcher(None, sentence, prev_sentence).ratio()
             print("=========== %f ===========" % ratio)
@@ -178,16 +197,36 @@ def main(_):
             prev_sentence = sentence
 
             if ratio <= 0.55:
+                # payload = {'key': APIkey, 'text': sentence, 'lang' : 'en-ru'}
+                # ru_sentence = JSON.loads((requests.get(url, params=payload)).text)['text'][0]
+
+                fakeArea.send_keys(sentence)
+                time.sleep(2)
+                
+                ru_sentence = translation.text
+
+                out_im = cv2.line(image.frame, (0, 340), (640, 340), (10, 10, 10), 50)
+                img_pil = Image.fromarray(out_im)
+                draw = ImageDraw.Draw(img_pil)
+                draw.text((10, 315),  ru_sentence, font = rufont, fill = (255, 255, 255))
+                draw.text((10, 335),  sentence, font = rufont, fill = (255, 255, 255))
+                out_im = np.array(img_pil)
+            
                 count_picOut += 1
-                font = cv2.FONT_HERSHEY_PLAIN
-                out_im = cv2.line(image.frame, (0, 350), (640, 350), (10, 10, 10), 30)
-                out_im = cv2.putText(out_im, sentence, (10, 350), font, 1.2, (255, 255, 255), 1, cv2.LINE_AA)
+                # font = cv2.FONT_HERSHEY_PLAIN
+                # out_im = cv2.line(image.frame, (0, 350), (640, 350), (10, 10, 10), 30)
+                # out_im2 = cv2.putText(out_im, sentence, (10, 350), font, 1.2, (255, 255, 255), 1, cv2.LINE_AA)
                 cv2.imwrite(file_path, out_im)
+
+                actionChains = ActionChains(driver)
+                actionChains.click(clearButton).perform()
+
 
         print("----------------------------------------------------")
         print(" count_picIn = %d " % count_picIn)
         print(" count_picOut = %d " % count_picOut)
         print(" picIn - picOut = %d " % (count_picIn-count_picOut))
+        driver.close()
 
 
 if __name__ == "__main__":
